@@ -11,13 +11,6 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
 
-const store_id = 'ahsof65f6f6e76876a';
-const store_passwd = 'ahsof65f6f6e76876a@ssl';
-const is_live = process.env.IS_LIVE === 'true';
-// Convert to boolean
-
-// Now you can use store_id, store_passwd, and is_live in your SSLCommerzPayment configuration
-
 
 
 //Middlware 
@@ -43,8 +36,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
 
     const MenuCollection = client.db("DBMadeBest").collection("MenuAll")
     const ReviewCollection = client.db("DBMadeBest").collection("review")
@@ -97,19 +88,19 @@ async function run() {
       res.send({ token });
     });
 
-  //  booking
+    //  booking
 
-  app.post('/booking', async (req, res) => {
-    const bookingItem = req.body;
-    const result = await bookingColllection.insertOne(bookingItem)
-    console.log(result)
-    res.send(result)
-  });
+    app.post('/booking', async (req, res) => {
+      const bookingItem = req.body;
+      const result = await bookingColllection.insertOne(bookingItem)
 
-
+      res.send(result)
+    });
 
 
-  //  order 
+
+
+    //  order 
 
 
 
@@ -132,8 +123,8 @@ async function run() {
           total_amount: total_amount.toFixed(2),
           currency: 'BDT',
           tran_id: trans_id,
-          success_url: `http://localhost:5000/payment/success/${trans_id}`,
-          fail_url: `http://localhost:5000/payment/failed/${trans_id}`,
+          success_url: `https://madebestresturent.vercel.app/payment/success/${trans_id}`,
+          fail_url: `https://madebestresturent.vercel.app/payment/failed/${trans_id}`,
           cancel_url: 'http://localhost:3030/cancel',
           ipn_url: 'http://localhost:3030/ipn',
           shipping_method: 'Courier',
@@ -154,9 +145,9 @@ async function run() {
         };
 
 
-        console.log('Payment Data:', paymentData);
 
-       
+
+
 
         const sslcommerz = new SSLCommerzPayment(process.env.STORE_ID, process.env.STORE_PASSWORD, false); // Change 'false' to 'true' for live environment
 
@@ -165,15 +156,15 @@ async function run() {
             if (apiResponse && apiResponse.GatewayPageURL) {
               let GatewayPageURL = apiResponse.GatewayPageURL;
               res.send({ url: GatewayPageURL });
-              console.log('Redirecting to:', GatewayPageURL);
+              
               const finalOrder = {
                 ...orderData, total_amount, paidStatus: false, transaction_id: trans_id
               }
-      
+
               // Insert order data into the database
-              const result =  orderColllection.insertOne(finalOrder);
-              console.log('Order placed:', result.insertedId);
-              
+              const result = orderColllection.insertOne(finalOrder);
+             
+
             } else {
               console.error('Invalid API response:', apiResponse);
               res.status(500).send({ error: 'Invalid API response' });
@@ -185,46 +176,46 @@ async function run() {
           });
 
 
-          app.post('/payment/success/:tranId', async (req, res) => {
-            try {
-                console.log(req.params.tranId);
-                const result = await orderColllection.updateOne({
-                    transaction_id: req.params.tranId
-                }, {
-                    $set: {
-                        paidStatus: true,
-                    }
-                });
-        
-                if (result.modifiedCount > 0) {
-                    res.redirect(`http://localhost:5173/payment/success/${req.params.tranId}`);
-                } else {
-                    // If no document was modified, return a 404 status
-                    res.status(404).send('No order found for the provided transaction ID');
-                }
-            } catch (error) {
-                // Handle any errors that occur during the database operation
-                console.error('Error updating order status:', error);
-                res.status(500).send({ error: 'Error updating order status' });
+        app.post('/payment/success/:tranId', async (req, res) => {
+          try {
+
+            const result = await orderColllection.updateOne({
+              transaction_id: req.params.tranId
+            }, {
+              $set: {
+                paidStatus: true,
+              }
+            });
+
+            if (result.modifiedCount > 0) {
+              res.redirect(`http://localhost:5173/payment/success/${req.params.tranId}`);
+            } else {
+              // If no document was modified, return a 404 status
+              res.status(404).send('No order found for the provided transaction ID');
             }
+          } catch (error) {
+            // Handle any errors that occur during the database operation
+            console.error('Error updating order status:', error);
+            res.status(500).send({ error: 'Error updating order status' });
+          }
         });
 
         app.post('/payment/failed/:tranId', async (req, res) => {
-    try {
-        console.log(req.params.tranId);
-        const result = await orderColllection.deleteOne({
-            transaction_id: req.params.tranId
-        })
-        if (result.deletedCount) {
-          res.redirect(`http://localhost:5173/payment/failed/${req.params.tranId}`);
-           
-        } 
-    } catch (error) {
-        // Handle any errors that occur during the database operation
-        console.error('Error updating order status for failed payment:', error);
-        res.status(500).send({ error: 'Error updating order status for failed payment' });
-    }
-});
+          try {
+
+            const result = await orderColllection.deleteOne({
+              transaction_id: req.params.tranId
+            })
+            if (result.deletedCount) {
+              res.redirect(`http://localhost:5173/payment/failed/${req.params.tranId}`);
+
+            }
+          } catch (error) {
+            // Handle any errors that occur during the database operation
+            console.error('Error updating order status for failed payment:', error);
+            res.status(500).send({ error: 'Error updating order status for failed payment' });
+          }
+        });
 
 
 
@@ -237,7 +228,7 @@ async function run() {
 
 
     app.get('/order', verifyToken, verifyAdmin, async (req, res) => {
-      console.log(req.headers)
+
       const result = await orderColllection.find().toArray()
       res.send(result)
     })
@@ -283,7 +274,7 @@ async function run() {
 
     app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      console.log(id);
+
       const filter = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
@@ -298,82 +289,82 @@ async function run() {
 
     //Admin State
 
-    app.get('/general', async(req,res) => {
+    app.get('/general', async (req, res) => {
       try {
-          const users = await userCollection.estimatedDocumentCount();
-          const menuItems = await MenuCollection.estimatedDocumentCount();
-          const orders = await orderColllection.estimatedDocumentCount();
+        const users = await userCollection.estimatedDocumentCount();
+        const menuItems = await MenuCollection.estimatedDocumentCount();
+        const orders = await orderColllection.estimatedDocumentCount();
 
-          const result = await orderColllection.aggregate([
-            {
-              $group: {
-                _id: null,
-                totalRevenue: {
-                  $sum: '$total_amount' // Assuming 'total_amount' is the field in your order documents representing the total amount
-                }
+        const result = await orderColllection.aggregate([
+          {
+            $group: {
+              _id: null,
+              totalRevenue: {
+                $sum: '$total_amount' // Assuming 'total_amount' is the field in your order documents representing the total amount
               }
             }
-          ]).toArray();
-          
-          console.log(result)
+          }
+        ]).toArray();
+
+
         const revenue = result.length > 0 ? result[0].totalRevenue : 0;
 
-  
-          console.log("Revenue:", revenue ); // Log revenue to console for debugging
-  
-          res.send({
-              users,
-              menuItems,
-              orders,
-              revenue
-          });
-      } catch (error) {
-          console.error("Error fetching general statistics:", error);
-          res.status(500).send({ error: "Internal Server Error" });
-      }
-  });
-  
-// app.get('/general-states', async (req, res) => {
-//     try {
-//         const result = await orderColllection.aggregate([
-//           {
-//             $match: {
-//               cartItems: { $exists: true, $ne: [] } // Filter orders with non-empty cartItems arrays
-//             }
-//           },
-//           {
-//             $unwind: '$cartItems'
-//           },
-//           {
-//             $lookup: {
-//               from: 'menu',
-//               localField: 'cartItems.productId',
-//               foreignField: '_id',
-//               as: 'menuItems'
-//             }
-//           },
-//           {
-//             $unwind: {
-//               path: '$menuItems',
-//               preserveNullAndEmptyArrays: true // Preserve documents even if menuItems array is empty
-//             }
-//           },
-//           {
-//             $group: {
-//               _id: '$menuItems.category',
-//               quantity: { $sum: '$cartItems.quantity' },
-//               revenue: { $sum: { $multiply: ['$menuItems.price', '$cartItems.quantity'] } }
-//             }
-//           }
-          
-//         ]).toArray();
 
-//         res.send(result);
-//     } catch (error) {
-//         console.error("Error fetching general states:", error);
-//         res.status(500).json({ error: "Internal Server Error" });
-//     }
-// });
+
+
+        res.send({
+          users,
+          menuItems,
+          orders,
+          revenue
+        });
+      } catch (error) {
+        console.error("Error fetching general statistics:", error);
+        res.status(500).send({ error: "Internal Server Error" });
+      }
+    });
+
+    // app.get('/general-states', async (req, res) => {
+    //     try {
+    //         const result = await orderColllection.aggregate([
+    //           {
+    //             $match: {
+    //               cartItems: { $exists: true, $ne: [] } // Filter orders with non-empty cartItems arrays
+    //             }
+    //           },
+    //           {
+    //             $unwind: '$cartItems'
+    //           },
+    //           {
+    //             $lookup: {
+    //               from: 'menu',
+    //               localField: 'cartItems.productId',
+    //               foreignField: '_id',
+    //               as: 'menuItems'
+    //             }
+    //           },
+    //           {
+    //             $unwind: {
+    //               path: '$menuItems',
+    //               preserveNullAndEmptyArrays: true // Preserve documents even if menuItems array is empty
+    //             }
+    //           },
+    //           {
+    //             $group: {
+    //               _id: '$menuItems.category',
+    //               quantity: { $sum: '$cartItems.quantity' },
+    //               revenue: { $sum: { $multiply: ['$menuItems.price', '$cartItems.quantity'] } }
+    //             }
+    //           }
+
+    //         ]).toArray();
+
+    //         res.send(result);
+    //     } catch (error) {
+    //         console.error("Error fetching general states:", error);
+    //         res.status(500).json({ error: "Internal Server Error" });
+    //     }
+    // });
 
 
 
@@ -381,7 +372,7 @@ async function run() {
     //Here is Users -
 
     app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-      console.log(req.headers)
+
       const result = await userCollection.find().toArray()
       res.send(result)
     })
@@ -407,7 +398,7 @@ async function run() {
       const user = req.body;
       const query = { email: user.email }
       const existingUser = await userCollection.findOne(query)
-      console.log('user existing')
+      
       if (existingUser) {
         return res.send({ message: 'user already exists', insertedId: null })
 
@@ -455,7 +446,7 @@ async function run() {
       const result = await ReviewCollection.find().toArray();
       res.send(result)
     })
-   
+
 
     app.get('/carts', async (req, res) => {
       try {
@@ -522,8 +513,6 @@ async function run() {
 
 
 
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
