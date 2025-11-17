@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const NodeCache = require('node-cache');
 require('dotenv').config();
 
-const port = process.env.Port || 5000
+const port = process.env.PORT || process.env.Port || 5000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 // Enable compression for all responses
@@ -51,8 +51,18 @@ app.use(rateLimitMiddleware);
 
 const DB_USER = process.env.DB_USER;
 const DB_PASSWORD = process.env.DB_PASSWORD;
+const DB_HOST = process.env.DB_HOST || 'cluster0.vz4h6lc.mongodb.net';
+const MONGODB_URI = process.env.MONGODB_URI;
 
-const uri = `mongodb+srv://${DB_USER}:${DB_PASSWORD}@cluster0.vz4h6lc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = MONGODB_URI || (
+  DB_USER && DB_PASSWORD
+    ? `mongodb+srv://${DB_USER}:${DB_PASSWORD}@${DB_HOST}/?retryWrites=true&w=majority&appName=Cluster0`
+    : null
+);
+
+if (!uri) {
+  throw new Error('Missing MongoDB credentials. Please set MONGODB_URI or DB_USER/DB_PASSWORD.');
+}
 
 // Create a MongoClient with optimized settings
 const client = new MongoClient(uri, {
