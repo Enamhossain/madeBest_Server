@@ -83,6 +83,42 @@ const client = new MongoClient(uri, {
 
 // Collections reference
 let MenuCollection, ReviewCollection, CartCollection, userCollection, orderColllection, bookingColllection;
+let dbConnected = false;
+let dbConnectionPromise = null;
+
+// Helper function to ensure database is connected
+async function ensureDbConnection() {
+  if (dbConnected && MenuCollection) {
+    return true;
+  }
+  
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = (async () => {
+      try {
+        if (!client.topology || !client.topology.isConnected()) {
+          await client.connect();
+        }
+        console.log('Connected to MongoDB');
+        
+        MenuCollection = client.db("DBMadeBest").collection("MenuAll");
+        ReviewCollection = client.db("DBMadeBest").collection("review");
+        CartCollection = client.db("DBMadeBest").collection("cart");
+        userCollection = client.db("DBMadeBest").collection("users");
+        orderColllection = client.db("DBMadeBest").collection("order");
+        bookingColllection = client.db("DBMadeBest").collection("Booking");
+        
+        dbConnected = true;
+        return true;
+      } catch (error) {
+        console.error('Database connection error:', error);
+        dbConnectionPromise = null;
+        throw error;
+      }
+    })();
+  }
+  
+  return await dbConnectionPromise;
+}
 
 // Middleware to verify token
 const verifyToken = (req, res, next) => {
@@ -131,15 +167,7 @@ const verifyAdmin = async (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
-    console.log('Connected to MongoDB');
-
-    MenuCollection = client.db("DBMadeBest").collection("MenuAll")
-    ReviewCollection = client.db("DBMadeBest").collection("review")
-    CartCollection = client.db("DBMadeBest").collection("cart")
-    userCollection = client.db("DBMadeBest").collection("users")
-    orderColllection = client.db("DBMadeBest").collection("order")
-    bookingColllection = client.db("DBMadeBest").collection("Booking")
+    await ensureDbConnection();
 
     // Create indexes for better query performance
     // Use sparse unique index for transaction_id to allow multiple null values
@@ -591,41 +619,6 @@ async function run() {
       }
     });
 
-    // Get menu with caching and HTTP cache headers
-    app.get('/menu', async (req, res) => {
-      try {
-        const cacheKey = 'all-menu';
-        const cached = cache.get(cacheKey);
-        
-        // Set HTTP cache headers for client-side caching
-        res.set({
-          'Cache-Control': 'public, max-age=300', // 5 minutes
-          'ETag': `"${cacheKey}-${Date.now()}"`,
-        });
-        
-        if (cached) {
-          return res.send(cached);
-        }
-
-        // Use projection to only fetch needed fields (reduce data transfer)
-        const result = await MenuCollection.find({}, {
-          projection: {
-            _id: 1,
-            Title: 1,
-            category: 1,
-            price: 1,
-            description: 1,
-            img: 1
-          }
-        }).toArray();
-        
-        cache.set(cacheKey, result, 300); // Cache for 5 minutes
-        res.send(result);
-      } catch (error) {
-        console.error('Error fetching menu:', error);
-        res.status(500).send({ error: 'Failed to fetch menu' });
-      }
-    });
 
     // Create menu item
     app.post('/menu', verifyToken, verifyAdmin, async (req, res) => {
@@ -679,44 +672,6 @@ async function run() {
       }
     });
 
-    // Get review with caching, sorting, and HTTP headers
-    app.get('/review', async (req, res) => {
-      try {
-        const limit = parseInt(req.query.limit) || 100; // Limit reviews
-        const cacheKey = `all-reviews-${limit}`;
-        const cached = cache.get(cacheKey);
-        
-        // Set HTTP cache headers
-        res.set({
-          'Cache-Control': 'public, max-age=300', // 5 minutes
-        });
-        
-        if (cached) {
-          return res.send(cached);
-        }
-
-        // Sort by latest first and limit results
-        const result = await ReviewCollection.find({}, {
-          projection: {
-            _id: 1,
-            name: 1,
-            rating: 1,
-            details: 1,
-            image: 1,
-            createdAt: 1
-          }
-        })
-          .sort({ _id: -1 })
-          .limit(limit)
-          .toArray();
-        
-        cache.set(cacheKey, result, 300); // Cache for 5 minutes
-        res.send(result);
-      } catch (error) {
-        console.error('Error fetching reviews:', error);
-        res.status(500).send({ error: 'Failed to fetch reviews' });
-      }
-    });
 
     // Get carts with optimized query, projection, and HTTP headers
     app.get('/carts', async (req, res) => {
@@ -836,12 +791,96 @@ async function run() {
   }
 }
 
+// Register critical routes immediately (outside run() for Vercel serverless)
+// Get menu with caching and HTTP cache headers
+app.get('/menu', async (req, res) => {
+  try {
+    await ensureDbConnection();
+    const cacheKey = 'all-menu';
+    const cached = cache.get(cacheKey);
+    
+    // Set HTTP cache headers for client-side caching
+    res.set({
+      'Cache-Control': 'public, max-age=300', // 5 minutes
+      'ETag': `"${cacheKey}-${Date.now()}"`,
+    });
+    
+    if (cached) {
+      return res.send(cached);
+    }
+
+    // Use projection to only fetch needed fields (reduce data transfer)
+    const result = await MenuCollection.find({}, {
+      projection: {
+        _id: 1,
+        Title: 1,
+        category: 1,
+        price: 1,
+        description: 1,
+        img: 1
+      }
+    }).toArray();
+    
+    cache.set(cacheKey, result, 300); // Cache for 5 minutes
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching menu:', error);
+    res.status(500).send({ error: 'Failed to fetch menu' });
+  }
+});
+
+// Get review with caching, sorting, and HTTP headers
+app.get('/review', async (req, res) => {
+  try {
+    await ensureDbConnection();
+    const limit = parseInt(req.query.limit) || 100; // Limit reviews
+    const cacheKey = `all-reviews-${limit}`;
+    const cached = cache.get(cacheKey);
+    
+    // Set HTTP cache headers
+    res.set({
+      'Cache-Control': 'public, max-age=300', // 5 minutes
+    });
+    
+    if (cached) {
+      return res.send(cached);
+    }
+
+    // Sort by latest first and limit results
+    const result = await ReviewCollection.find({}, {
+      projection: {
+        _id: 1,
+        name: 1,
+        rating: 1,
+        details: 1,
+        image: 1,
+        createdAt: 1
+      }
+    })
+      .sort({ _id: -1 })
+      .limit(limit)
+      .toArray();
+    
+    cache.set(cacheKey, result, 300); // Cache for 5 minutes
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching reviews:', error);
+    res.status(500).send({ error: 'Failed to fetch reviews' });
+  }
+});
+
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
   res.send('Server is running');
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+// Export app for Vercel serverless functions
+module.exports = app;
+
+// For local development, also listen on a port
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
+}
