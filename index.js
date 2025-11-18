@@ -219,6 +219,127 @@ async function run() {
       }
     });
 
+    // Get all bookings (admin only)
+    app.get('/booking', verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const skip = (page - 1) * limit;
+        
+        const cacheKey = `all-bookings-${page}-${limit}`;
+        const cached = cache.get(cacheKey);
+        
+        res.set({
+          'Cache-Control': 'private, max-age=60',
+        });
+        
+        if (cached) {
+          return res.send(cached);
+        }
+
+        const [result, total] = await Promise.all([
+          bookingColllection.find()
+            .sort({ _id: -1 })
+            .skip(skip)
+            .limit(limit)
+            .toArray(),
+          bookingColllection.estimatedDocumentCount()
+        ]);
+        
+        const response = {
+          data: result,
+          pagination: {
+            page,
+            limit,
+            total,
+            pages: Math.ceil(total / limit)
+          }
+        };
+        
+        cache.set(cacheKey, response, 60);
+        res.send(response);
+      } catch (error) {
+        console.error('Error fetching bookings:', error);
+        res.status(500).send({ error: 'Failed to fetch bookings' });
+      }
+    });
+
+    // Get user-specific bookings
+    app.get('/booking/user/:email', verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        
+        // Verify user can only access their own bookings
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ error: 'Unauthorized access' });
+        }
+
+        const cacheKey = `user-bookings-${email}`;
+        const cached = cache.get(cacheKey);
+        
+        res.set({
+          'Cache-Control': 'private, max-age=30',
+        });
+        
+        if (cached) {
+          return res.send(cached);
+        }
+
+        const result = await bookingColllection.find({ email: email })
+          .sort({ date: 1, time: 1 }) // Sort by date and time
+          .toArray();
+        
+        cache.set(cacheKey, result, 30);
+        res.send({ data: result });
+      } catch (error) {
+        console.error('Error fetching user bookings:', error);
+        res.status(500).send({ error: 'Failed to fetch user bookings' });
+      }
+    });
+
+    // Delete booking
+    app.delete('/booking/:id', verifyToken, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const booking = await bookingColllection.findOne({ _id: new ObjectId(id) });
+        
+        if (!booking) {
+          return res.status(404).send({ error: 'Booking not found' });
+        }
+
+        // Check if user is admin
+        const user = await userCollection.findOne(
+          { email: req.decoded.email },
+          { projection: { role: 1 } }
+        );
+        const isAdmin = user?.role === 'admin';
+
+        // Verify user can only delete their own bookings (unless admin)
+        if (!isAdmin && booking.email !== req.decoded.email) {
+          return res.status(403).send({ error: 'Unauthorized access' });
+        }
+
+        const result = await bookingColllection.deleteOne({ _id: new ObjectId(id) });
+        
+        if (result.deletedCount > 0) {
+          // Invalidate cache
+          cache.del(`user-bookings-${booking.email}`);
+          const keys = cache.keys();
+          keys.forEach(key => {
+            if (key.startsWith('all-bookings-')) {
+              cache.del(key);
+            }
+          });
+          res.send({ success: true, message: 'Booking deleted successfully' });
+        } else {
+          res.status(404).send({ error: 'Booking not found' });
+        }
+      } catch (error) {
+        console.error('Error deleting booking:', error);
+        res.status(500).send({ error: 'Failed to delete booking' });
+      }
+    });
+
     // Order - Optimized with Promise.all for parallel fetching
     app.post('/order', async (req, res) => {
       try {
@@ -372,6 +493,46 @@ async function run() {
       } catch (error) {
         console.error('Error fetching orders:', error);
         res.status(500).send({ error: 'Failed to fetch orders' });
+      }
+    });
+
+    // Get user-specific orders
+    app.get('/order/user/:email', verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
+        
+        // Verify user can only access their own orders
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ error: 'Unauthorized access' });
+        }
+
+        const cacheKey = `user-orders-${email}`;
+        const cached = cache.get(cacheKey);
+        
+        // Set HTTP cache headers
+        res.set({
+          'Cache-Control': 'private, max-age=30', // 30 seconds (private per user)
+        });
+        
+        if (cached) {
+          return res.send(cached);
+        }
+
+        // Fetch user orders - check both cus_email and Email fields
+        const result = await orderColllection.find({
+          $or: [
+            { cus_email: email },
+            { Email: email }
+          ]
+        })
+        .sort({ _id: -1 }) // Latest first
+        .toArray();
+        
+        cache.set(cacheKey, result, 30); // Cache for 30 seconds
+        res.send({ data: result });
+      } catch (error) {
+        console.error('Error fetching user orders:', error);
+        res.status(500).send({ error: 'Failed to fetch user orders' });
       }
     });
 
